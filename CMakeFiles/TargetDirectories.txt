@@ -1,0 +1,3 @@
+/home/trevo/Projects/CamControlls/CMakeFiles/MotionCapture.dir
+/home/trevo/Projects/CamControlls/CMakeFiles/edit_cache.dir
+/home/trevo/Projects/CamControlls/CMakeFiles/rebuild_cache.dir
