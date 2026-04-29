@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 project( MotionCapture )
+set(OpenCV_DIR "C:/CppLibraries/opencv/build")
 find_package( OpenCV REQUIRED )
 include_directories( ${OpenCV_INCLUDE_DIRS} )
-add_executable( MotionCapture DisplayImage.cpp )
+add_executable( MotionCapture "MotionCapture.cpp")
 target_link_libraries( MotionCapture ${OpenCV_LIBS} )
