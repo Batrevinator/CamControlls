@@ -1,8 +1,11 @@
+#define _USE_MATH_DEFINES
+
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/video.hpp>
+#include <cmath>
 #include <iostream>
 #include <vector>
 
@@ -24,6 +27,22 @@ std::vector<cv::Point> smoothTrajectory(const std::vector<cv::Point>& trajectory
         smoothed.push_back(cv::Point(sumX / count, sumY / count));
     }
     return smoothed;
+}
+
+// This does not seem to work unfortunately. Results in very jagged paths that prefer to stay at y = 0.
+void getWeightedCentroid(const std::vector<cv::Point>& previousCentroids, cv::Point& newCentroid) {
+    if (previousCentroids.empty()) return;
+    double totalWeight = 0.0;
+    double sumX = 0.0, sumY = 0.0;
+    int n = previousCentroids.size();
+    for (int i = n - 1; i >= 0; --i) {
+        double weight = pow(M_E, ((i - n-1) * .25) + 1); // More recent points have higher weight
+        sumX += previousCentroids[i].x * weight;
+        sumY += previousCentroids[i].y * weight;
+        totalWeight += weight;
+    }
+    newCentroid = cv::Point(static_cast<int>(sumX / totalWeight), static_cast<int>(sumY / totalWeight));
+    return;
 }
 
 int main(int argc, char** argv)
@@ -69,7 +88,7 @@ int main(int argc, char** argv)
     const double MAX_AREA = 6500.0;
     const double MIN_AREA = 1500.0;
     cv::Point lastHandPos(-1, -1);
-    const double DIST_WEIGHT = 2.0;
+    const double DIST_WEIGHT = 5.0;
 
     while (true) {
         cap >> frame;
@@ -91,6 +110,7 @@ int main(int argc, char** argv)
         std::vector<cv::Point> trackedContour;
         double bestScore = -1e9;
         cv::Point bestCentroid(-1, -1);
+        std::vector<cv::Point> previousCentroids;
         for (const auto& contour : contours) {
             double area = contourArea(contour);
             //if (area > MIN_AREA && area < MAX_AREA) {
@@ -99,7 +119,31 @@ int main(int argc, char** argv)
                 drawContours(contourMask, std::vector<std::vector<cv::Point>>{contour}, -1, Scalar(255), FILLED);
                 Moments m = moments(contour);
                 cv::Point centroid(-1, -1);
-                if (m.m00 != 0) centroid = Point((int)(m.m10 / m.m00), (int)(m.m01 / m.m00));
+                if (m.m00 != 0) {
+                    int targetX = (int)(m.m10 / m.m00);
+                    double centerY = m.m01 / m.m00;
+
+                    // mu02 / m00 gives the vertical variance. 
+                    // Taking the square root gives the vertical 'standard deviation' of the shape.
+                    double verticalSigma = sqrt(m.mu02 / m.m00);
+
+                    // Shift the Y point upward (subtracting from Y) by the spread of the object.
+                    // Use a multiplier (e.g., 0.8 or 1.0) to control how "strongly" it favors the top.
+                    int targetY = (int)(centerY - (0.3 * verticalSigma));
+                    //if(previousCentroids.size() > 0) {
+					centroid = Point(targetX, targetY);
+						//getWeightedCentroid(previousCentroids, centroid);
+      //                  previousCentroids.push_back(centroid);
+      //                  if (previousCentroids.size() > MAX_FRAMES) {
+      //                      previousCentroids.erase(previousCentroids.begin());
+      //                  }
+      //              }
+      //              else {
+      //                  centroid = Point(targetX, targetY);
+						//previousCentroids.push_back(centroid);
+      //              }
+                    
+                }
                 double dist = (lastHandPos.x >= 0 && lastHandPos.y >= 0) ? norm(centroid - lastHandPos) : 0.0;
                 double score = area - DIST_WEIGHT * dist;
                 if (score > bestScore) {
@@ -154,7 +198,21 @@ int main(int argc, char** argv)
         cv::flip(pathCanvas, mirroredMotionCap, 1);
 		Mat mirroredFrame;
 		cv::flip(fgMask, mirroredFrame, 1);
+
+        if (mirroredFrame.channels() == 1) {
+            cv::cvtColor(mirroredFrame, mirroredFrame, cv::COLOR_GRAY2BGR);
+        }
+
+        cv::resize(mirroredFrame, mirroredFrame, mirroredMotionCap.size());
+
+        cv::Mat output;
+        double alpha = 0.6; // Weight of the motion path
+        double beta = 0.4;  // Weight of the mask
+        cv::addWeighted(mirroredMotionCap, alpha, mirroredFrame, beta, 0.0, output);
+        cv::imshow("Overlay Result", output);
+
         imshow("Motion Path", mirroredMotionCap);
+		//imshow("Foreground Mask", mirroredFrame);
         int key = waitKey(30);
         if (key == 'q' || key == 27) break;
         else if (key == 'c') {
